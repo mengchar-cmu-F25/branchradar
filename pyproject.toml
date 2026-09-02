@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "branchradar"
+version = "0.1.0"
+description = "Detect semantic risks between in-flight Git branches"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Mengchao Ren" }]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+]
+
+[project.scripts]
+branchradar = "branchradar:main"
+
+[tool.setuptools]
+py-modules = ["branchradar"]
