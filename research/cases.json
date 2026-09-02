@@ -1,0 +1,187 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "integreat-3420",
+      "repository": "digitalfabrik/integreat-cms",
+      "incident_url": "https://github.com/digitalfabrik/integreat-cms/issues/3420",
+      "fix_url": "https://github.com/digitalfabrik/integreat-cms/pull/3421",
+      "classification": "parallel_pr_migration_conflict",
+      "expected_actionable_subjects": ["integreat_cms/cms"],
+      "left": {
+        "pr": 3355,
+        "sha": "cbc90ab2ca74be102bbbdba80aa44424ea4e897f",
+        "url": "https://github.com/digitalfabrik/integreat-cms/pull/3355"
+      },
+      "right": {
+        "pr": 3409,
+        "sha": "e22709274049a56fba22d9208490f8fd7a38d5a1",
+        "url": "https://github.com/digitalfabrik/integreat-cms/pull/3409"
+      }
+    },
+    {
+      "id": "addons-9398",
+      "repository": "mozilla/addons-server",
+      "incident_url": "https://github.com/mozilla/addons/issues/9398",
+      "fix_url": "https://github.com/mozilla/addons-server/pull/21580",
+      "classification": "parallel_pr_migration_conflict",
+      "expected_actionable_subjects": ["src/olympia/users"],
+      "left": {
+        "pr": 21573,
+        "sha": "f4a26f16d8bd4221f349065bfcf92e723ea2df6f",
+        "url": "https://github.com/mozilla/addons-server/pull/21573"
+      },
+      "right": {
+        "pr": 21556,
+        "sha": "7756c2fed215bb3ec1a39ca293f2ca1d0b3d3031",
+        "url": "https://github.com/mozilla/addons-server/pull/21556"
+      }
+    },
+    {
+      "id": "open5e-664",
+      "repository": "open5e/open5e-api",
+      "incident_url": "https://github.com/open5e/open5e-api/issues/664",
+      "fix_url": "https://github.com/open5e/open5e-api/pull/665",
+      "classification": "parallel_pr_migration_conflict",
+      "expected_actionable_subjects": ["api_v2"],
+      "left": {
+        "pr": 657,
+        "sha": "4d997a6fc491c2d7a0eb900d48229e0642b154e8",
+        "url": "https://github.com/open5e/open5e-api/pull/657"
+      },
+      "right": {
+        "pr": 656,
+        "sha": "5e506394018c5c939129b1ec3a64a068d3adfad5",
+        "url": "https://github.com/open5e/open5e-api/pull/656"
+      }
+    },
+    {
+      "id": "sourcelens-108",
+      "repository": "oneprolabs/sourcelens",
+      "incident_url": "https://github.com/oneprolabs/sourcelens/issues/108",
+      "fix_url": "https://github.com/oneprolabs/sourcelens/pull/109",
+      "classification": "parallel_pr_migration_conflict",
+      "expected_actionable_subjects": ["backend/lens"],
+      "left": {
+        "pr": 81,
+        "sha": "859a8c5bed5626f076e13c948b26dc39334f9cb3",
+        "url": "https://github.com/oneprolabs/sourcelens/pull/81"
+      },
+      "right": {
+        "pr": 96,
+        "sha": "b1dd8d72886a1e7aa695d602b8b9ee7e3501c1aa",
+        "url": "https://github.com/oneprolabs/sourcelens/pull/96"
+      }
+    },
+    {
+      "id": "bounswe-453",
+      "repository": "bounswe/bounswe2026group5",
+      "incident_url": "https://github.com/bounswe/bounswe2026group5/issues/453",
+      "fix_url": "https://github.com/bounswe/bounswe2026group5/pull/454",
+      "classification": "parallel_pr_migration_conflict",
+      "expected_actionable_subjects": ["backend/profiles"],
+      "left": {
+        "pr": 444,
+        "sha": "527ee0218d466e3a3e336a1b4eec34bb9e8d6d1e",
+        "url": "https://github.com/bounswe/bounswe2026group5/pull/444"
+      },
+      "right": {
+        "pr": 436,
+        "sha": "4251b43353788ba51de926fbb1f84c017af37f98",
+        "url": "https://github.com/bounswe/bounswe2026group5/pull/436"
+      }
+    },
+    {
+      "id": "treeherder-9792",
+      "repository": "mozilla/treeherder",
+      "incident_url": "https://github.com/mozilla/treeherder/pull/9792",
+      "fix_url": "https://github.com/mozilla/treeherder/pull/9792",
+      "classification": "parallel_pr_migration_conflict",
+      "expected_actionable_subjects": ["treeherder/perf"],
+      "left": {
+        "pr": 9753,
+        "sha": "2dea86b72340eb26708664320bc6cf24291cdd39",
+        "url": "https://github.com/mozilla/treeherder/pull/9753"
+      },
+      "right": {
+        "pr": 9662,
+        "sha": "d892446b5d59067ebe11d449d15f186a408b6235",
+        "url": "https://github.com/mozilla/treeherder/pull/9662"
+      }
+    },
+    {
+      "id": "digiplan-178",
+      "repository": "rl-institut/digiplan",
+      "incident_url": "https://github.com/rl-institut/digiplan/issues/178",
+      "fix_url": "https://github.com/rl-institut/digiplan/pull/179",
+      "classification": "non_parallel_graph_conflict",
+      "expected_actionable_subjects": [],
+      "left": {
+        "pr": 126,
+        "sha": "e04d06f08eea22b49032e22e988d236b38e297ff",
+        "url": "https://github.com/rl-institut/digiplan/pull/126"
+      },
+      "right": {
+        "pr": 152,
+        "sha": "72fff1908be15faa8a33733c321aba436585ba7b",
+        "url": "https://github.com/rl-institut/digiplan/pull/152"
+      },
+      "note": "The recorded right head is an ancestor of the left head. The issue is a real graph conflict, but not the independent-branch case BranchRadar claims to detect."
+    },
+    {
+      "id": "pft-652",
+      "repository": "freedomofpress/pressfreedomtracker.us",
+      "incident_url": "https://github.com/freedomofpress/pressfreedomtracker.us/issues/652",
+      "fix_url": "https://github.com/freedomofpress/pressfreedomtracker.us/pull/653",
+      "classification": "parallel_pr_migration_conflict",
+      "expected_actionable_subjects": ["common"],
+      "left": {
+        "pr": 640,
+        "sha": "db3900c582d119389da68335e71da61918678507",
+        "url": "https://github.com/freedomofpress/pressfreedomtracker.us/pull/640"
+      },
+      "right": {
+        "pr": 648,
+        "sha": "1211a21363381896e7fea0e22ea532e49a0e215a",
+        "url": "https://github.com/freedomofpress/pressfreedomtracker.us/pull/648"
+      }
+    },
+    {
+      "id": "openstax-1770",
+      "repository": "openstax/openstax-cms",
+      "incident_url": "https://github.com/openstax/openstax-cms/pull/1770",
+      "fix_url": "https://github.com/openstax/openstax-cms/pull/1770",
+      "classification": "parallel_pr_migration_conflict",
+      "expected_actionable_subjects": ["pages"],
+      "left": {
+        "pr": 1768,
+        "sha": "e78226ba96183cdf8c0f61f52edc8b2026744339",
+        "url": "https://github.com/openstax/openstax-cms/pull/1768"
+      },
+      "right": {
+        "pr": 1769,
+        "sha": "a0adccd3ad062aebad56b98404927600d9597866",
+        "url": "https://github.com/openstax/openstax-cms/pull/1769"
+      },
+      "note": "The right head contains squash-equivalent changes from the left PR. Path-only ancestry reports books and news in addition to the actionable pages conflict."
+    },
+    {
+      "id": "sbomify-1268",
+      "repository": "sbomify/sbomify",
+      "incident_url": "https://github.com/sbomify/sbomify/pull/1268",
+      "fix_url": "https://github.com/sbomify/sbomify/pull/1268",
+      "classification": "parallel_pr_migration_conflict",
+      "expected_actionable_subjects": ["sbomify/apps/teams"],
+      "left": {
+        "pr": 1253,
+        "sha": "f4f410c4669414d64565508312a1df9708afdba2",
+        "url": "https://github.com/sbomify/sbomify/pull/1253"
+      },
+      "right": {
+        "pr": 1244,
+        "sha": "ec042cb88ebead81b7403e29af7b5d8506dae68a",
+        "url": "https://github.com/sbomify/sbomify/pull/1244"
+      }
+    }
+  ]
+}
