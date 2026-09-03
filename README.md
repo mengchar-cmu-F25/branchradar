@@ -122,6 +122,11 @@ cannot overwrite each other.
 python -m unittest discover -s tests -v
 ```
 
+The integration tests create disposable Git repositories and worktrees with
+synthetic files; they do not scan your projects or fetch external repositories.
+Run only the API dirty-state, negative-control, and merge-lifecycle scenarios with
+`python -m unittest discover -s tests -v -k synthetic`.
+
 Version 0.1 intentionally uses path evidence rather than AST inference. Configure narrow
 patterns for useful signal; add deeper semantic analysis only if real misses justify it.
 The [research report](research/README.md) records the public-case evidence and its limits.

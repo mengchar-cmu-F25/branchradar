@@ -90,6 +90,131 @@ consumer = ["frontend/src/api/**"]
         git(worktree, "commit", "-m", name)
         return worktree
 
+    def cli(self, expected_status: int, config: Path | None = None) -> dict:
+        command = [
+            sys.executable,
+            str(Path(branchradar.__file__)),
+            "--repo",
+            str(self.repo),
+            "--format",
+            "json",
+        ]
+        if config is not None:
+            command.extend(("--config", str(config)))
+        result = subprocess.run(command, capture_output=True, text=True)
+        self.assertEqual(result.returncode, expected_status, result.stderr)
+        return json.loads(result.stdout)
+
+    def test_synthetic_api_cross_changes_preserve_dirty_path_evidence(self) -> None:
+        for name in ("migration-a", "migration-b", "api-producer", "api-consumer"):
+            git(self.repo, "worktree", "remove", str(self.root / name))
+        left = self.add_worktree("left")
+        right = self.add_worktree("right")
+        schema = "backend/api/schema.py"
+        client = "frontend/src/api/client.ts"
+        endpoint = "backend/api/endpoint.py"
+        adapter = "frontend/src/api/adapter.ts"
+        self.write(left, schema, "VERSION = 2\n")
+        git(left, "add", schema)
+        self.write(left, adapter, "export const version = 2\n")
+        self.write(right, client, "export const version = 2\n")
+        self.write(right, endpoint, "VERSION = 2\n")
+
+        self.assertEqual(self.cli(0)["risks"], [])
+        report = self.cli(1, self.config)
+        self.assertEqual(len(report["risks"]), 1)
+        risk = report["risks"][0]
+        left_id = {"id": "refs/heads/left", "name": "left"}
+        right_id = {"id": "refs/heads/right", "name": "right"}
+        self.assertEqual(risk["kind"], "api_contract_overlap")
+        self.assertEqual(risk["subject"], "public_api")
+        self.assertEqual(risk["branches"], [left_id, right_id])
+        self.assertEqual(risk["merge_base"], git(self.repo, "rev-parse", "main"))
+        self.assertEqual(
+            risk["evidence"],
+            [
+                {
+                    "producer_branch": left_id,
+                    "producer_paths": [schema],
+                    "consumer_branch": right_id,
+                    "consumer_paths": [client],
+                },
+                {
+                    "producer_branch": right_id,
+                    "producer_paths": [endpoint],
+                    "consumer_branch": left_id,
+                    "consumer_paths": [adapter],
+                },
+            ],
+        )
+        self.assertEqual(
+            {branch["name"]: branch["footprint"]["dirty_paths"] for branch in report["branches"]},
+            {"left": [schema, adapter], "right": [endpoint, client]},
+        )
+        self.assertEqual(git(left, "diff", "--cached", "--name-only"), schema)
+        self.assertEqual(git(right, "diff", "--name-only"), client)
+        self.assertEqual(git(left, "ls-files", "--others", "--exclude-standard"), adapter)
+        self.assertEqual(git(right, "ls-files", "--others", "--exclude-standard"), endpoint)
+
+    def test_synthetic_api_unrelated_and_same_role_changes_do_not_warn(self) -> None:
+        for name in ("migration-a", "migration-b", "api-producer", "api-consumer"):
+            git(self.repo, "worktree", "remove", str(self.root / name))
+        left = self.add_worktree("left")
+        right = self.add_worktree("right")
+        self.write(left, "backend/api_extra/schema.py", "VERSION = 2\n")
+        self.write(left, "docs/api.md", "API notes\n")
+        git(left, "add", "docs/api.md")
+        self.write(right, "frontend/src/api/client.ts", "export const version = 2\n")
+        report = self.cli(0, self.config)
+        self.assertEqual(report["risks"], [])
+        self.assertEqual(report["branches"][0]["footprint"]["contracts"], {})
+        self.assertEqual(
+            report["branches"][1]["footprint"]["contracts"],
+            {"public_api": {"producer": [], "consumer": ["frontend/src/api/client.ts"]}},
+        )
+
+        self.write(right, "frontend/src/api/client.ts", "export const version = 1\n")
+        for worktree in (left, right):
+            self.write(worktree, "backend/api/schema.py", "VERSION = 2\n")
+        report = self.cli(0, self.config)
+        self.assertEqual(report["risks"], [])
+        for branch in report["branches"]:
+            self.assertEqual(
+                branch["footprint"]["contracts"],
+                {"public_api": {"producer": ["backend/api/schema.py"], "consumer": []}},
+            )
+
+    def test_synthetic_api_merge_clears_only_shared_change_evidence(self) -> None:
+        for name in ("migration-a", "migration-b"):
+            git(self.repo, "worktree", "remove", str(self.root / name))
+        producer = self.root / "api-producer"
+        consumer = self.root / "api-consumer"
+        producer_id = {"id": "refs/heads/api-producer", "name": "api-producer"}
+        consumer_id = {"id": "refs/heads/api-consumer", "name": "api-consumer"}
+        edge = {
+            "producer_branch": producer_id,
+            "producer_paths": ["backend/api/schema.py"],
+            "consumer_branch": consumer_id,
+            "consumer_paths": ["frontend/src/api/client.ts"],
+        }
+        before = self.cli(1, self.config)
+        self.assertEqual(len(before["risks"]), 1)
+        self.assertEqual(before["risks"][0]["evidence"], [edge])
+
+        git(consumer, "merge", "--no-edit", "api-producer")
+        self.assertEqual(self.cli(0, self.config)["risks"], [])
+
+        new_path = "backend/api/new_endpoint.py"
+        self.write(producer, new_path, "VERSION = 3\n")
+        after = self.cli(1, self.config)
+        self.assertEqual(len(after["risks"]), 1)
+        risk = after["risks"][0]
+        self.assertEqual(risk["kind"], "api_contract_overlap")
+        self.assertEqual(risk["subject"], "public_api")
+        self.assertEqual(risk["branches"], [consumer_id, producer_id])
+        self.assertEqual(risk["merge_base"], git(producer, "rev-parse", "HEAD"))
+        self.assertEqual(risk["evidence"], [{**edge, "producer_paths": [new_path]}])
+
     def test_detects_migration_and_contract_risks(self) -> None:
         report = branchradar.scan(self.repo, config=self.config)
 
