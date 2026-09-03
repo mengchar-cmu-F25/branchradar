@@ -29,6 +29,13 @@ python -m pip install .
 branchradar --repo /path/to/repo --base main
 ```
 
+To install the fixed v0.1.0 release without cloning, create and activate a virtual
+environment as above, then install its wheel:
+
+```bash
+python -m pip install https://github.com/mengchar-cmu-F25/branchradar/releases/download/v0.1.0/branchradar-0.1.0-py3-none-any.whl
+```
+
 Exit status is `1` when risks are found, `0` when none are found, and `2` for usage or Git
 errors. Add `--format json` for CI output. By default, only checked-out worktrees are
 analyzed; `--all-local-branches` includes other local branches.
