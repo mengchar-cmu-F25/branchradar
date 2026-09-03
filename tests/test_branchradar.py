@@ -160,6 +160,51 @@ consumer = ["frontend/src/api/**"]
         self.assertNotIn("parked", [item["name"] for item in default["branches"]])
         self.assertIn("parked", [item["name"] for item in all_branches["branches"]])
 
+    def test_cli_tracks_uncommitted_migration_risk_lifecycle(self) -> None:
+        for name in ("migration-a", "migration-b", "api-producer", "api-consumer"):
+            git(self.repo, "worktree", "remove", str(self.root / name))
+        invoice = self.add_worktree("invoice")
+        payment = self.add_worktree("payment")
+        command = [
+            sys.executable,
+            str(Path(branchradar.__file__)),
+            "--repo",
+            str(self.repo),
+            "--format",
+            "json",
+        ]
+
+        def cli(expected_status: int) -> dict:
+            result = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(result.returncode, expected_status, result.stderr)
+            return json.loads(result.stdout)
+
+        self.assertEqual(cli(0)["risks"], [])
+
+        invoice_path = "backend/billing/migrations/0002_invoice.py"
+        payment_path = "backend/billing/migrations/0002_payment.py"
+        self.write(invoice, invoice_path, "# staged, not committed\n")
+        git(invoice, "add", invoice_path)
+        self.write(payment, payment_path, "# untracked, not committed\n")
+        warning = cli(1)
+        self.assertEqual(len(warning["risks"]), 1)
+        risk = warning["risks"][0]
+        self.assertEqual(risk["kind"], "parallel_django_migrations")
+        self.assertEqual(risk["subject"], "backend/billing")
+        self.assertEqual(
+            [item["paths"] for item in risk["evidence"]],
+            [[invoice_path], [payment_path]],
+        )
+        self.assertEqual(git(invoice, "rev-parse", "HEAD"), git(payment, "rev-parse", "HEAD"))
+        self.assertEqual(git(invoice, "status", "--porcelain"), f"A  {invoice_path}")
+        self.assertEqual(git(payment, "status", "--porcelain"), f"?? {payment_path}")
+
+        (payment / payment_path).unlink()
+        self.assertEqual(cli(0)["risks"], [])
+
+        self.write(payment, "backend/orders/migrations/0002_order.py", "# different app\n")
+        self.assertEqual(cli(0)["risks"], [])
+
     def test_stacked_shared_and_identical_history_are_not_parallel_changes(self) -> None:
         self.add_branch(
             "stacked",

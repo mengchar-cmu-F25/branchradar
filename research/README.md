@@ -1,7 +1,8 @@
 # BranchRadar falsification report
 
-Date: 2026-09-02. Recommendation: **archive BranchRadar as a small local
-script/guide; do not productize or deploy it.**
+Date: 2026-09-02. The initial research recommendation was to archive BranchRadar
+as a small local script/guide. That recommendation has been superseded: **continue
+delivery of a usable v0.1 local CLI**, with the evidence and limits below intact.
 
 ## What was tested
 
@@ -81,7 +82,7 @@ Primary references:
 hashes. It does not copy or redistribute third-party source code or issue prose,
 so third-party repository licenses are not incorporated into this repository.
 
-## Decision
+## Initial research decision
 
 The narrow detector recovered the expected app subject in all nine selected
 known parallel-conflict cases while `merge-tree` returned clean for the retained
@@ -99,8 +100,21 @@ It is not enough to justify a standalone product:
 - squash merges create non-actionable warnings unless the tool grows patch-ID
   or graph semantics, which would violate the deliberately tiny scope.
 
-Stop here. Do not add API-contract analysis, a server, plugins, configuration,
-GitHub integration, packaging work, or deployment. Reopen product work only if
-three independent teams report this problem at least monthly and one provides
-a real dirty multi-worktree session where the warning changes coordination
-before a PR is opened.
+The initial recommendation was to stop product work until three independent
+teams reported a monthly problem and one supplied a real dirty multi-worktree
+session where the warning changed coordination before a PR. This was a demand
+threshold, not a technical obstacle to shipping the existing local utility.
+
+## Current delivery decision
+
+Continue toward a publicly usable v0.1: an installable CLI, a short reproducible
+demo, actionable file evidence, and tests of the actual dirty-worktree workflow.
+The integration test now drives real temporary Git worktrees through no warning,
+uncommitted same-app migration warning, removal of one side, and a different-app
+negative control. This proves the local workflow, not real-world adoption or
+pre-incident performance on the public cases above.
+
+The scope remains the existing migration-path and configured API-path checks.
+No server, graph inference, or hosted integration is needed for this release.
+Field trials will guide later improvements; missing demand evidence does not
+prevent users from trying the working CLI.
