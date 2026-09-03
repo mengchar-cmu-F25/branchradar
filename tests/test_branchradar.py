@@ -314,6 +314,33 @@ consumer = ["frontend/src/api/**"]
         self.assertEqual(clean_report["repository"], str(self.repo.resolve()))
         self.assertEqual(clean_report["risks"], [])
 
+    def test_cli_preserves_trailing_space_in_repository_root(self) -> None:
+        repo = self.root / "repo "
+        repo.mkdir()
+        git(repo, "init", "-b", "main")
+        self.write(repo, "nested/file.txt", "base\n")
+        git(repo, "add", ".")
+        git(
+            repo,
+            "-c",
+            "user.email=branchradar@example.test",
+            "-c",
+            "user.name=BranchRadar Test",
+            "commit",
+            "-m",
+            "base",
+        )
+
+        result = subprocess.run(
+            [sys.executable, str(Path(branchradar.__file__)), "--format", "json"],
+            cwd=repo / "nested",
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["repository"], str(repo.resolve()))
+
     def test_unchecked_branch_requires_opt_in(self) -> None:
         git(self.repo, "branch", "parked", "main")
 
