@@ -1,4 +1,4 @@
-"""Find high-signal semantic risks between in-flight Git branches."""
+"""Flag path-level coordination risks across Git worktrees."""
 
 from __future__ import annotations
 
@@ -510,7 +510,7 @@ def render_text(report: dict[str, Any]) -> str:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="branchradar",
-        description="Find semantic risks between in-flight Git branches.",
+        description="Flag path-level coordination risks across Git worktrees.",
     )
     parser.add_argument("--repo", type=Path, default=Path.cwd())
     parser.add_argument("--base", default="main")
