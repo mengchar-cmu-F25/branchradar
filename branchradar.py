@@ -376,6 +376,8 @@ def scan(
     _changed_paths.cache_clear()
     _worktree_paths.cache_clear()
     _git(repo, "rev-parse", "--git-dir")
+    if _git(repo, "rev-parse", "--is-bare-repository").strip() == "false":
+        repo = Path(_git(repo, "rev-parse", "--show-toplevel").strip())
     base_commit = _resolve_commit(repo, base)
     if config is None:
         default_config = repo / ".branchradar.toml"

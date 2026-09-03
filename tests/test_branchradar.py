@@ -274,6 +274,46 @@ consumer = ["frontend/src/api/**"]
         self.assertEqual(first.stdout, second.stdout)
         self.assertEqual(len(json.loads(first.stdout)["risks"]), 2)
 
+    def test_cli_from_subdirectory_uses_repository_root_config(self) -> None:
+        for name in ("migration-a", "migration-b"):
+            git(self.repo, "worktree", "remove", str(self.root / name))
+        (self.repo / ".branchradar.toml").write_text(
+            self.config.read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+        command = [
+            sys.executable,
+            str(Path(branchradar.__file__)),
+            "--format",
+            "json",
+        ]
+        subdirectory = self.repo / "backend/api"
+
+        warning = subprocess.run(
+            command, cwd=subdirectory, capture_output=True, text=True
+        )
+        self.assertEqual(warning.returncode, 1, warning.stderr)
+        report = json.loads(warning.stdout)
+        self.assertEqual(report["repository"], str(self.repo.resolve()))
+        self.assertEqual(
+            [risk["kind"] for risk in report["risks"]],
+            ["api_contract_overlap"],
+        )
+
+        git(
+            self.repo,
+            "worktree",
+            "remove",
+            str(self.root / "api-consumer"),
+        )
+        clean = subprocess.run(
+            command, cwd=subdirectory, capture_output=True, text=True
+        )
+        self.assertEqual(clean.returncode, 0, clean.stderr)
+        clean_report = json.loads(clean.stdout)
+        self.assertEqual(clean_report["repository"], str(self.repo.resolve()))
+        self.assertEqual(clean_report["risks"], [])
+
     def test_unchecked_branch_requires_opt_in(self) -> None:
         git(self.repo, "branch", "parked", "main")
 
