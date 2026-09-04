@@ -1,5 +1,6 @@
 import json
 import os
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -90,7 +91,9 @@ consumer = ["frontend/src/api/**"]
         git(worktree, "commit", "-m", name)
         return worktree
 
-    def cli(self, expected_status: int, config: Path | None = None) -> dict:
+    def cli(
+        self, expected_status: int, config: Path | None = None, *args: str
+    ) -> dict:
         command = [
             sys.executable,
             str(Path(branchradar.__file__)),
@@ -101,9 +104,184 @@ consumer = ["frontend/src/api/**"]
         ]
         if config is not None:
             command.extend(("--config", str(config)))
+        command.extend(args)
         result = subprocess.run(command, capture_output=True, text=True)
         self.assertEqual(result.returncode, expected_status, result.stderr)
         return json.loads(result.stdout)
+
+    def test_comparison_coverage_distinguishes_single_checkout_and_local_refs(self) -> None:
+        for name in ("migration-a", "migration-b", "api-producer", "api-consumer"):
+            git(self.repo, "worktree", "remove", str(self.root / name))
+        for name in ("api-producer", "api-consumer"):
+            git(self.repo, "branch", "-D", name)
+
+        empty = self.cli(0)
+        self.assertEqual(empty["scope"], "worktrees")
+        self.assertEqual(empty["branches"], [])
+        self.assertEqual(empty["compared_pairs"], 0)
+        self.assertIn("No branch pairs compared", branchradar.render_text(empty))
+
+        local = self.cli(1, None, "--all-local-branches")
+        self.assertEqual(local["scope"], "worktrees_and_local_branches")
+        self.assertEqual(local["compared_pairs"], 1)
+        self.assertEqual(len(local["risks"]), 1)
+
+        for name in ("migration-a", "migration-b"):
+            git(self.repo, "update-ref", f"refs/remotes/origin/{name}", name)
+            git(self.repo, "branch", "-D", name)
+        remote_only = self.cli(0, None, "--all-local-branches")
+        self.assertEqual(remote_only["branches"], [])
+        self.assertEqual(remote_only["compared_pairs"], 0)
+
+        # A typical CI checkout has one detached candidate, still no pairs.
+        git(self.repo, "checkout", "--detach", "origin/migration-a")
+        detached = self.cli(0)
+        self.assertEqual(len(detached["branches"]), 1)
+        self.assertEqual(detached["compared_pairs"], 0)
+
+    def test_comparison_coverage_reports_completed_negative_pair(self) -> None:
+        for name in ("migration-a", "migration-b", "api-producer", "api-consumer"):
+            git(self.repo, "worktree", "remove", str(self.root / name))
+        self.add_branch("docs-a", "docs/a.txt", "a\n")
+        self.add_branch("docs-b", "docs/b.txt", "b\n")
+        report = self.cli(0)
+        self.assertEqual(report["compared_pairs"], 1)
+        self.assertEqual(report["risks"], [])
+        self.assertNotIn("No branch pairs compared", branchradar.render_text(report))
+
+    def test_clean_base_aliases_do_not_change_candidates(self) -> None:
+        for name in ("migration-b", "api-producer", "api-consumer"):
+            git(self.repo, "worktree", "remove", str(self.root / name))
+        git(self.repo, "merge", "--ff-only", "migration-b")
+        for name in ("migration-b", "api-producer", "api-consumer"):
+            git(self.repo, "branch", "-D", name)
+        commit = git(self.repo, "rev-parse", "main")
+        git(self.repo, "update-ref", "refs/remotes/origin/main", commit)
+        expected = self.cli(0)
+        for checkout in ("main", commit):
+            git(self.repo, "checkout", checkout)
+            for base in ("main", "refs/heads/main", "origin/main", commit):
+                for extra in ((), ("--all-local-branches",)):
+                    with self.subTest(checkout=checkout, base=base, extra=extra):
+                        report = self.cli(0, None, "--base", base, *extra)
+                        self.assertEqual(report["branches"], expected["branches"])
+                        self.assertEqual(report["compared_pairs"], 0)
+                        self.assertEqual(report["risks"], [])
+
+    def test_unknown_config_keys_fail_instead_of_disabling_api_checks(self) -> None:
+        for name in ("migration-a", "migration-b"):
+            git(self.repo, "worktree", "remove", str(self.root / name))
+        valid = self.config.read_text(encoding="utf-8")
+        self.assertEqual(len(self.cli(1, self.config)["risks"]), 1)
+        for document, key in (
+            (valid.replace("contracts.", "contract."), "contract"),
+            (valid.replace("producer =", "producers ="), "producers"),
+            (valid.replace("consumer =", "consumers ="), "consumers"),
+            (valid + '\nignore = ["docs/**"]\n', "ignore"),
+        ):
+            with self.subTest(key=key):
+                self.config.write_text(document, encoding="utf-8")
+                result = subprocess.run(
+                    [
+                        sys.executable, str(Path(branchradar.__file__)),
+                        "--repo", str(self.repo), "--config", str(self.config),
+                        "--format", "json",
+                    ],
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(result.returncode, 2, result.stdout)
+                self.assertEqual(result.stdout, "")
+                self.assertIn(key, result.stderr)
+                self.assertIn("unknown", result.stderr)
+        self.assertEqual(self.cli(0)["risks"], [])
+
+    def test_scan_does_not_refresh_worktree_indexes(self) -> None:
+        git(self.repo, "config", "diff.autoRefreshIndex", "true")
+        self.write(self.root / "api-producer", "backend/api/schema.py", "VERSION = 3\n")
+        worktrees = [self.repo] + [
+            self.root / name
+            for name in ("migration-a", "migration-b", "api-producer", "api-consumer")
+        ]
+        expected = branchradar.scan(self.repo, config=self.config)
+        indexes = [
+            Path(git(path, "rev-parse", "--path-format=absolute", "--git-path", "index"))
+            for path in worktrees
+        ]
+        for worktree in worktrees:
+            path = worktree / "backend/api/schema.py"
+            stat = path.stat()
+            os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 2_000_000_000))
+        before = [(path.read_bytes(), path.stat().st_mtime_ns) for path in indexes]
+        refs_before = git(self.repo, "show-ref")
+        actual = branchradar.scan(self.repo, config=self.config)
+        after = [(path.read_bytes(), path.stat().st_mtime_ns) for path in indexes]
+        self.assertEqual(actual, expected)
+        self.assertEqual(after, before)
+        self.assertEqual(git(self.repo, "show-ref"), refs_before)
+
+    def test_worktree_diff_preserves_special_binary_and_mode_only_paths(self) -> None:
+        worktree = self.add_worktree("special-paths")
+        special = "notes\tline\nfile.txt"
+        self.write(worktree, special, "before\n")
+        self.write(worktree, "mode.txt", "unchanged\n")
+        (worktree / "binary.data").write_bytes(b"before\0\n")
+        git(worktree, "config", "core.filemode", "true")
+        git(worktree, "add", ".")
+        git(worktree, "commit", "-m", "special path fixtures")
+        self.write(worktree, special, "after\n")
+        (worktree / "binary.data").write_bytes(b"after\0\n")
+        (worktree / "mode.txt").chmod(0o755)
+        expected = sorted([special, "binary.data", "mode.txt"])
+        self.assertEqual(branchradar._dirty_paths(worktree), expected)
+        self.assertEqual(list(branchradar._worktree_paths(worktree, "HEAD")), expected)
+
+    def test_real_linked_worktree_hook_uses_each_worktrees_own_index(self) -> None:
+        left = self.add_worktree("hook-left")
+        right = self.add_worktree("hook-right")
+        path = "backend/billing/migrations/0002_hook_left.py"
+        self.write(left, path, "# staged\n")
+        git(left, "add", path)
+        self.write(right, "backend/billing/migrations/0002_hook_right.py", "# untracked\n")
+        command = [
+            sys.executable, str(Path(branchradar.__file__)), "--repo", str(left),
+            "--config", str(self.config), "--format", "json",
+        ]
+        expected = subprocess.run(command, capture_output=True, text=True)
+        self.assertEqual(expected.returncode, 1, expected.stderr)
+        output = self.root / "hook-report.json"
+        context = self.root / "hook-context.txt"
+        hooks = self.root / "hooks"
+        hooks.mkdir()
+        hook = hooks / "pre-commit"
+        hook.write_text(
+            '#!/bin/sh\nprintf "%s\\n" "$GIT_DIR" "$GIT_INDEX_FILE" > '
+            + shlex.quote(str(context)) + "\n"
+            + shlex.join(command) + " > " + shlex.quote(str(output))
+            + "\nexit 1\n",
+            encoding="utf-8",
+        )
+        hook.chmod(0o755)
+        before = git(left, "rev-parse", "HEAD")
+        result = subprocess.run(
+            [
+                "git", "-C", str(left), "-c", f"core.hooksPath={hooks}",
+                "commit", "-m", "blocked by synthetic hook",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(all(context.read_text().splitlines()))
+        self.assertEqual(json.loads(output.read_text()), json.loads(expected.stdout))
+        self.assertEqual(git(left, "rev-parse", "HEAD"), before)
+
+    def test_text_warnings_are_advisory_without_changing_json_severity(self) -> None:
+        report = self.cli(1, self.config)
+        text = branchradar.render_text(report)
+        self.assertIn("[REVIEW]", text)
+        self.assertNotIn("[HIGH]", text)
+        self.assertTrue(all(risk["severity"] == "high" for risk in report["risks"]))
 
     def test_synthetic_api_cross_changes_preserve_dirty_path_evidence(self) -> None:
         for name in ("migration-a", "migration-b", "api-producer", "api-consumer"):
@@ -342,7 +520,7 @@ consumer = ["frontend/src/api/**"]
         self.assertEqual(json.loads(result.stdout)["repository"], str(repo.resolve()))
 
     def test_unchecked_branch_requires_opt_in(self) -> None:
-        git(self.repo, "branch", "parked", "main")
+        git(self.repo, "branch", "parked", "migration-a")
 
         default = branchradar.scan(self.repo, config=self.config)
         all_branches = branchradar.scan(
@@ -622,6 +800,35 @@ consumer = ["frontend/src/api/**"]
 
 
 class BranchRadarUnitTest(unittest.TestCase):
+    def test_git_isolates_repository_context_but_preserves_configuration(self) -> None:
+        context = {
+            "GIT_DIR": "/synthetic/other.git",
+            "GIT_WORK_TREE": "/synthetic/other",
+            "GIT_COMMON_DIR": "/synthetic/common",
+            "GIT_INDEX_FILE": "/synthetic/other.index",
+            "GIT_OBJECT_DIRECTORY": "/synthetic/objects",
+            "GIT_NAMESPACE": "synthetic",
+        }
+        configuration = {
+            "GIT_CONFIG": "/synthetic/config",
+            "GIT_CONFIG_PARAMETERS": "'credential.username'='synthetic'",
+            "GIT_CONFIG_COUNT": "1",
+            "GIT_CONFIG_KEY_0": "credential.username",
+            "GIT_CONFIG_VALUE_0": "synthetic",
+            "GIT_SSH_COMMAND": "synthetic-ssh",
+            "GIT_ASKPASS": "/synthetic/askpass",
+        }
+        with mock.patch.dict(os.environ, {**context, **configuration}):
+            before = dict(os.environ)
+            with mock.patch.object(branchradar.subprocess, "run") as run:
+                run.return_value.stdout = "synthetic\n"
+                branchradar._git(Path("/synthetic/target"), "config", "credential.username")
+            environment = run.call_args.kwargs["env"]
+            self.assertFalse(set(context) & environment.keys())
+            for name, value in configuration.items():
+                self.assertEqual(environment[name], value)
+            self.assertEqual(dict(os.environ), before)
+
     def test_globs_are_anchored_and_path_aware(self) -> None:
         self.assertTrue(
             branchradar._matches("backend/api/schema.py", ("backend/*/schema.py",))

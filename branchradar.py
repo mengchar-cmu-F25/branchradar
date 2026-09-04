@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import functools
 import json
+import os
 import re
 import subprocess
 import sys
@@ -16,6 +17,24 @@ from typing import Any, Sequence
 
 
 MIGRATION_RE = re.compile(r"^(?P<app>.+)/migrations/(?P<file>[0-9][^/]*)\.py$")
+
+# Repository context from `git rev-parse --local-env-vars`, plus ref namespace.
+# Keep configuration variables so authentication and other Git settings survive.
+REPOSITORY_ENV_VARS = {
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_IMPLICIT_WORK_TREE",
+    "GIT_GRAFT_FILE",
+    "GIT_INDEX_FILE",
+    "GIT_NO_REPLACE_OBJECTS",
+    "GIT_REPLACE_REF_BASE",
+    "GIT_PREFIX",
+    "GIT_SHALLOW_FILE",
+    "GIT_COMMON_DIR",
+    "GIT_NAMESPACE",
+}
 
 
 class BranchRadarError(RuntimeError):
@@ -40,10 +59,13 @@ class Contract:
 
 
 def _git(repo: Path, *args: str) -> str:
-    command = ["git", "-C", str(repo), *args]
+    command = ["git", "-c", "diff.autoRefreshIndex=false", "-C", str(repo), *args]
+    env = {key: value for key, value in os.environ.items() if key not in REPOSITORY_ENV_VARS}
+    env["GIT_OPTIONAL_LOCKS"] = "0"
     try:
         result = subprocess.run(
             command,
+            env=env,
             check=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -155,13 +177,14 @@ def _dirty_paths(worktree: Path) -> list[str]:
         output = _git(
             worktree,
             "diff",
-            "--name-only",
+            "--numstat",
             "-z",
             "--no-ext-diff",
+            "--no-textconv",
             "--no-renames",
             *extra,
         )
-        paths.update(path for path in output.split("\0") if path)
+        paths.update(record.split("\t", 2)[2] for record in output.split("\0") if record)
     output = _git(worktree, "ls-files", "--others", "--exclude-standard", "-z")
     paths.update(path for path in output.split("\0") if path)
     return sorted(paths)
@@ -172,13 +195,14 @@ def _worktree_paths(worktree: Path, start: str) -> tuple[str, ...]:
     output = _git(
         worktree,
         "diff",
-        "--name-only",
+        "--numstat",
         "-z",
         "--no-ext-diff",
+        "--no-textconv",
         "--no-renames",
         start,
     )
-    paths = {path for path in output.split("\0") if path}
+    paths = {record.split("\t", 2)[2] for record in output.split("\0") if record}
     output = _git(worktree, "ls-files", "--others", "--exclude-standard", "-z")
     paths.update(path for path in output.split("\0") if path)
     return tuple(sorted(paths))
@@ -210,6 +234,9 @@ def load_contracts(path: Path | None) -> list[Contract]:
     except (OSError, tomllib.TOMLDecodeError) as exc:
         raise BranchRadarError(f"cannot read config {path}: {exc}") from exc
 
+    unknown = document.keys() - {"contracts"}
+    if unknown:
+        raise BranchRadarError(f"unknown config keys: {', '.join(sorted(unknown))}")
     raw_contracts = document.get("contracts", {})
     if not isinstance(raw_contracts, dict):
         raise BranchRadarError("config 'contracts' must be a table")
@@ -218,6 +245,11 @@ def load_contracts(path: Path | None) -> list[Contract]:
     for name, value in sorted(raw_contracts.items()):
         if not isinstance(value, dict):
             raise BranchRadarError(f"contract '{name}' must be a table")
+        unknown = value.keys() - {"producer", "consumer"}
+        if unknown:
+            raise BranchRadarError(
+                f"unknown keys in contract '{name}': {', '.join(sorted(unknown))}"
+            )
         producer = value.get("producer")
         consumer = value.get("consumer")
         if not _string_list(producer) or not _string_list(consumer):
@@ -387,7 +419,9 @@ def scan(
     for candidate in enumerate_candidates(repo, base, include_all_branches):
         branch_base = _merge_base(repo, base_commit, candidate.commit)
         dirty_paths = _dirty_paths(Path(candidate.worktree)) if candidate.worktree else []
-        if candidate.is_base and not dirty_paths:
+        if not dirty_paths and (
+            candidate.is_base or candidate.commit == base_commit
+        ):
             continue
         if candidate.worktree:
             paths = list(_worktree_paths(Path(candidate.worktree), branch_base))
@@ -405,6 +439,7 @@ def scan(
         )
 
     risks: list[dict[str, Any]] = []
+    compared_pairs = 0
     for index, left in enumerate(branches):
         for right in branches[index + 1 :]:
             pair_base = _merge_base(repo, left["commit"], right["commit"])
@@ -422,6 +457,7 @@ def scan(
             pair_right = {**right, "footprint": _footprint(right_paths, contracts)}
             risks.extend(_migration_risks(pair_left, pair_right, pair_base))
             risks.extend(_contract_risks(pair_left, pair_right, pair_base))
+            compared_pairs += 1
     risks.sort(
         key=lambda risk: (
             tuple(branch["id"] for branch in risk["branches"]),
@@ -434,6 +470,8 @@ def scan(
         "schema_version": 2,
         "repository": str(repo),
         "base": {"ref": base, "commit": base_commit},
+        "scope": "worktrees_and_local_branches" if include_all_branches else "worktrees",
+        "compared_pairs": compared_pairs,
         "branches": branches,
         "risks": risks,
     }
@@ -461,9 +499,12 @@ def _branch_label(branch: dict[str, str]) -> str:
 def render_text(report: dict[str, Any]) -> str:
     base = report["base"]
     lines = [
-        f"BranchRadar: {len(report['branches'])} branches against "
+        f"BranchRadar: {len(report['branches'])} branches; base "
         f"{base['ref']} ({base['commit'][:12]})"
     ]
+    lines.append(f"Scope: {report['scope']}; compared pairs: {report['compared_pairs']}")
+    if report["compared_pairs"] == 0:
+        lines.append("No branch pairs compared; cross-branch risks were not assessed.")
     for branch in report["branches"]:
         footprint = branch["footprint"]
         labels: list[str] = []
@@ -485,7 +526,7 @@ def render_text(report: dict[str, Any]) -> str:
     for risk in report["risks"]:
         left, right = risk["branches"]
         lines.append(
-            f"- [{risk['severity'].upper()}] {risk['kind']}: "
+            f"- [REVIEW] {risk['kind']}: "
             f"{_branch_label(left)} <-> {_branch_label(right)}: "
             f"{risk['reason']}"
         )
